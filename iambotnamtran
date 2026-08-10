@@ -1,0 +1,451 @@
+-- [[ MENU VIPENUNAMTRAN - MOBILE WITH AIMBOT QUICK TOGGLE ]] --
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Configuration Settings
+local Settings = {
+    ESP_Enabled = false,
+    ESP_Names = false,
+    ESP_Health = false,
+    ESP_Skeleton = false,
+    
+    Aimbot_Enabled = false,
+    Aimbot_TargetPart = "Head", -- "Head", "HumanoidRootPart", "Torso"
+    
+    FOV_Enabled = false,
+    FOV_Radius = 100,
+    FOV_Visible = true,
+    FOV_Color = Color3.fromRGB(0, 200, 255),
+
+    QuickButton_Enabled = true -- Ẩn/Hiện nút lối tắt Aimbot
+}
+
+-- Draw FOV Circle (Cố định ở giữa màn hình Mobile)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 60
+FOVCircle.Radius = Settings.FOV_Radius
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+FOVCircle.Color = Settings.FOV_Color
+
+-- Cache ESP Elements
+local ESPCache = {}
+
+local R15_Joints = {
+    {"Head", "UpperTorso"},
+    {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"},
+    {"LeftUpperArm", "LeftLowerArm"},
+    {"UpperTorso", "RightUpperArm"},
+    {"RightUpperArm", "RightLowerArm"},
+    {"LowerTorso", "LeftUpperLeg"},
+    {"LeftUpperLeg", "LeftLowerLeg"},
+    {"LowerTorso", "RightUpperLeg"},
+    {"RightUpperLeg", "RightLowerLeg"}
+}
+
+local R6_Joints = {
+    {"Head", "Torso"},
+    {"Torso", "Left Arm"},
+    {"Torso", "Right Arm"},
+    {"Torso", "Left Leg"},
+    {"Torso", "Right Leg"}
+}
+
+-- Clear ESP Objects
+local function RemoveESP(player)
+    if ESPCache[player] then
+        local data = ESPCache[player]
+        if data.Name then data.Name:Remove() end
+        if data.Health then data.Health:Remove() end
+        if data.Skeleton then
+            for _, line in ipairs(data.Skeleton) do
+                line:Remove()
+            end
+        end
+        ESPCache[player] = nil
+    end
+end
+
+-- Create ESP Objects
+local function CreateESP(player)
+    if player == LocalPlayer or ESPCache[player] then return end
+
+    local data = {
+        Name = Drawing.new("Text"),
+        Health = Drawing.new("Text"),
+        Skeleton = {}
+    }
+
+    data.Name.Size = 14
+    data.Name.Center = true
+    data.Name.Outline = true
+    data.Name.Color = Color3.fromRGB(255, 255, 255)
+    data.Name.Visible = false
+
+    data.Health.Size = 13
+    data.Health.Center = true
+    data.Health.Outline = true
+    data.Health.Color = Color3.fromRGB(0, 255, 100)
+    data.Health.Visible = false
+
+    for i = 1, 10 do
+        local line = Drawing.new("Line")
+        line.Thickness = 1.5
+        line.Color = Color3.fromRGB(255, 255, 255)
+        line.Visible = false
+        table.insert(data.Skeleton, line)
+    end
+
+    ESPCache[player] = data
+end
+
+-- Manage Player Cache
+for _, plr in ipairs(Players:GetPlayers()) do
+    CreateESP(plr)
+end
+Players.PlayerAdded:Connect(CreateESP)
+Players.PlayerRemoving:Connect(RemoveESP)
+
+-- Hide ESP Helper
+local function HideESP(draw)
+    draw.Name.Visible = false
+    draw.Health.Visible = false
+    for _, line in ipairs(draw.Skeleton) do
+        line.Visible = false
+    end
+end
+
+-- Render Loop (ESP & FOV)
+RunService.RenderStepped:Connect(function()
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    FOVCircle.Position = screenCenter
+    FOVCircle.Radius = Settings.FOV_Radius
+    FOVCircle.Visible = Settings.FOV_Enabled and Settings.FOV_Visible
+
+    for player, draw in pairs(ESPCache) do
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+
+        if Settings.ESP_Enabled and character and humanoid and hrp and humanoid.Health > 0 then
+            local hrpPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+            if onScreen then
+                if Settings.ESP_Names then
+                    draw.Name.Text = player.DisplayName or player.Name
+                    draw.Name.Position = Vector2.new(hrpPos.X, hrpPos.Y - 35)
+                    draw.Name.Visible = true
+                else
+                    draw.Name.Visible = false
+                end
+
+                if Settings.ESP_Health then
+                    draw.Health.Text = string.format("HP: %d/%d", math.floor(humanoid.Health), humanoid.MaxHealth)
+                    draw.Health.Position = Vector2.new(hrpPos.X, hrpPos.Y - 20)
+                    draw.Health.Visible = true
+                else
+                    draw.Health.Visible = false
+                end
+
+                if Settings.ESP_Skeleton then
+                    local isR15 = character:FindFirstChild("UpperTorso") ~= nil
+                    local joints = isR15 and R15_Joints or R6_Joints
+
+                    for idx, pair in ipairs(joints) do
+                        local line = draw.Skeleton[idx]
+                        local partA = character:FindFirstChild(pair[1])
+                        local partB = character:FindFirstChild(pair[2])
+
+                        if line and partA and partB then
+                            local posA, visA = Camera:WorldToViewportPoint(partA.Position)
+                            local posB, visB = Camera:WorldToViewportPoint(partB.Position)
+
+                            if visA and visB then
+                                line.From = Vector2.new(posA.X, posA.Y)
+                                line.To = Vector2.new(posB.X, posB.Y)
+                                line.Visible = true
+                            else
+                                line.Visible = false
+                            end
+                        elseif line then
+                            line.Visible = false
+                        end
+                    end
+                    for i = #joints + 1, #draw.Skeleton do
+                        draw.Skeleton[i].Visible = false
+                    end
+                else
+                    for _, line in ipairs(draw.Skeleton) do line.Visible = false end
+                end
+            else
+                HideESP(draw)
+            end
+        else
+            HideESP(draw)
+        end
+    end
+end)
+
+-- Get Target for Aimbot
+local function GetClosestPlayerInFOV()
+    local closestPart = nil
+    local shortestDistance = Settings.FOV_Radius
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local targetPart = char and char:FindFirstChild(Settings.Aimbot_TargetPart)
+
+            if char and hum and hum.Health > 0 and targetPart then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                    if not Settings.FOV_Enabled or distance <= Settings.FOV_Radius then
+                        if distance < shortestDistance then
+                            shortestDistance = distance
+                            closestPart = targetPart
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPart
+end
+
+-- Aimbot Loop
+RunService.RenderStepped:Connect(function()
+    if Settings.Aimbot_Enabled then
+        local target = GetClosestPlayerInFOV()
+        if target then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
+        end
+    end
+end)
+
+-- [[ CREATING GUI ]] --
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "VipenuNAMTRAN_UI"
+ScreenGui.ResetOnSpawn = false
+
+local parentTarget = (gethui and gethui()) or game:GetService("CoreGui")
+if not parentTarget then parentTarget = LocalPlayer:WaitForChild("PlayerGui") end
+ScreenGui.Parent = parentTarget
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 300, 0, 420)
+MainFrame.Position = UDim2.new(0.5, -150, 0.3, -150)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner", MainFrame)
+UICorner.CornerRadius = UDim.new(0, 8)
+
+-- Title
+local TitleBar = Instance.new("TextLabel", MainFrame)
+TitleBar.Size = UDim2.new(1, -60, 0, 35)
+TitleBar.Position = UDim2.new(0, 10, 0, 0)
+TitleBar.BackgroundTransparency = 1
+TitleBar.Text = "MENU VIPENUNAMTRAN"
+TitleBar.TextColor3 = Color3.fromRGB(0, 200, 255)
+TitleBar.TextSize = 16
+TitleBar.Font = Enum.Font.SourceSansBold
+TitleBar.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Minimize Button
+local MinBtn = Instance.new("TextButton", MainFrame)
+MinBtn.Size = UDim2.new(0, 25, 0, 25)
+MinBtn.Position = UDim2.new(1, -30, 0, 5)
+MinBtn.Text = "-"
+MinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.TextSize = 18
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 4)
+
+local ContentContainer = Instance.new("ScrollingFrame", MainFrame)
+ContentContainer.Size = UDim2.new(1, -10, 1, -45)
+ContentContainer.Position = UDim2.new(0, 5, 0, 40)
+ContentContainer.BackgroundTransparency = 1
+ContentContainer.CanvasSize = UDim2.new(0, 0, 0, 430)
+ContentContainer.ScrollBarThickness = 4
+
+local UIList = Instance.new("UIListLayout", ContentContainer)
+UIList.Padding = UDim.new(0, 6)
+
+local isMinimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        MainFrame:TweenSize(UDim2.new(0, 300, 0, 35), "Out", "Quad", 0.2, true)
+        ContentContainer.Visible = false
+        MinBtn.Text = "+"
+    else
+        MainFrame:TweenSize(UDim2.new(0, 300, 0, 420), "Out", "Quad", 0.2, true)
+        ContentContainer.Visible = true
+        MinBtn.Text = "-"
+    end
+end)
+
+-- [[ NÚT LỐI TẮT AIMBOT (QUICK TOGGLE BUTTON) ]] --
+local QuickAimBtn = Instance.new("TextButton", ScreenGui)
+QuickAimBtn.Name = "QuickAimButton"
+QuickAimBtn.Size = UDim2.new(0, 75, 0, 75)
+QuickAimBtn.Position = UDim2.new(0.1, 0, 0.4, 0)
+QuickAimBtn.BackgroundColor3 = Settings.Aimbot_Enabled and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(200, 50, 50)
+QuickAimBtn.Text = "AIM\n" .. (Settings.Aimbot_Enabled and "BẬT" or "TẮT")
+QuickAimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+QuickAimBtn.Font = Enum.Font.SourceSansBold
+QuickAimBtn.TextSize = 15
+QuickAimBtn.Active = true
+QuickAimBtn.Draggable = true -- Có thể di chuyển nút tròn trên màn hình
+QuickAimBtn.Visible = Settings.QuickButton_Enabled
+
+local QuickCorner = Instance.new("UICorner", QuickAimBtn)
+QuickCorner.CornerRadius = UDim.new(1, 0) -- Nút hình tròn
+
+local QuickStroke = Instance.new("UIStroke", QuickAimBtn)
+QuickStroke.Thickness = 2
+QuickStroke.Color = Color3.fromRGB(255, 255, 255)
+
+-- Ref tới nút Aimbot trong Menu để đồng bộ
+local AimbotMenuBtn = nil
+
+local function UpdateAimbotState()
+    QuickAimBtn.BackgroundColor3 = Settings.Aimbot_Enabled and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(200, 50, 50)
+    QuickAimBtn.Text = "AIM\n" .. (Settings.Aimbot_Enabled and "BẬT" or "TẮT")
+    
+    if AimbotMenuBtn then
+        AimbotMenuBtn.BackgroundColor3 = Settings.Aimbot_Enabled and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(35, 35, 45)
+        AimbotMenuBtn.Text = "Bật AIMBOT (Tự Động Lock): " .. (Settings.Aimbot_Enabled and "BẬT" or "TẮT")
+    end
+end
+
+QuickAimBtn.MouseButton1Click:Connect(function()
+    Settings.Aimbot_Enabled = not Settings.Aimbot_Enabled
+    UpdateAimbotState()
+end)
+
+-- UI Builders Helper
+local function CreateToggle(text, configKey, callback)
+    local btn = Instance.new("TextButton", ContentContainer)
+    btn.Size = UDim2.new(1, -10, 0, 32)
+    btn.BackgroundColor3 = Settings[configKey] and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(35, 35, 45)
+    btn.Text = text .. ": " .. (Settings[configKey] and "BẬT" or "TẮT")
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.SourceSans
+    btn.TextSize = 14
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    btn.MouseButton1Click:Connect(function()
+        Settings[configKey] = not Settings[configKey]
+        btn.BackgroundColor3 = Settings[configKey] and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(35, 35, 45)
+        btn.Text = text .. ": " .. (Settings[configKey] and "BẬT" or "TẮT")
+        if callback then callback(Settings[configKey]) end
+    end)
+    return btn
+end
+
+local function CreateSelector(text, options, configKey)
+    local btn = Instance.new("TextButton", ContentContainer)
+    btn.Size = UDim2.new(1, -10, 0, 32)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    btn.Text = text .. ": " .. tostring(Settings[configKey])
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.SourceSans
+    btn.TextSize = 14
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    local currentIndex = 1
+    btn.MouseButton1Click:Connect(function()
+        currentIndex = (currentIndex % #options) + 1
+        Settings[configKey] = options[currentIndex]
+        btn.Text = text .. ": " .. tostring(Settings[configKey])
+    end)
+end
+
+-- Menu Items
+CreateToggle("Chức năng ESP Tổng", "ESP_Enabled")
+CreateToggle("Hiện Tên Người Chơi", "ESP_Names")
+CreateToggle("Hiện Máu Người Chơi", "ESP_Health")
+CreateToggle("Khung Xương (Skeleton)", "ESP_Skeleton")
+
+AimbotMenuBtn = CreateToggle("Bật AIMBOT (Tự Động Lock)", "Aimbot_Enabled", function()
+    UpdateAimbotState()
+end)
+
+CreateToggle("Hiện Nút Lối Tắt Aimbot", "QuickButton_Enabled", function(state)
+    QuickAimBtn.Visible = state
+end)
+
+CreateSelector("Bộ Phận Nhắm (Aim Part)", {"Head", "HumanoidRootPart", "Torso"}, "Aimbot_TargetPart")
+
+CreateToggle("Bật Vòng FOV Giữa Màn Hình", "FOV_Enabled")
+CreateToggle("Hiện/Ẩn Vòng FOV", "FOV_Visible")
+
+-- FOV Slider
+local SliderFrame = Instance.new("Frame", ContentContainer)
+SliderFrame.Size = UDim2.new(1, -10, 0, 45)
+SliderFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+Instance.new("UICorner", SliderFrame).CornerRadius = UDim.new(0, 6)
+
+local SliderLabel = Instance.new("TextLabel", SliderFrame)
+SliderLabel.Size = UDim2.new(1, 0, 0, 20)
+SliderLabel.BackgroundTransparency = 1
+SliderLabel.Text = "Kích Thước Vòng FOV: " .. Settings.FOV_Radius
+SliderLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+SliderLabel.Font = Enum.Font.SourceSans
+SliderLabel.TextSize = 14
+
+local SliderBtn = Instance.new("TextButton", SliderFrame)
+SliderBtn.Size = UDim2.new(1, -20, 0, 12)
+SliderBtn.Position = UDim2.new(0, 10, 0, 25)
+SliderBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+SliderBtn.Text = ""
+Instance.new("UICorner", SliderBtn).CornerRadius = UDim.new(0, 4)
+
+local SliderFill = Instance.new("Frame", SliderBtn)
+SliderFill.Size = UDim2.new(Settings.FOV_Radius / 400, 0, 1, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+Instance.new("UICorner", SliderFill).CornerRadius = UDim.new(0, 4)
+
+local dragging = false
+SliderBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local posX = input.Position.X
+        local btnPos = SliderBtn.AbsolutePosition.X
+        local btnSize = SliderBtn.AbsoluteSize.X
+        local relativeX = math.clamp(posX - btnPos, 0, btnSize)
+        local percentage = relativeX / btnSize
+
+        Settings.FOV_Radius = math.floor(percentage * 400)
+        SliderFill.Size = UDim2.new(percentage, 0, 1, 0)
+        SliderLabel.Text = "Kích Thước Vòng FOV: " .. Settings.FOV_Radius
+    end
+end)
